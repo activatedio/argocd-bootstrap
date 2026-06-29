@@ -5,7 +5,7 @@
 #
 # `cluster-addons-root` ships live as the in-repo example of the pattern. Add
 # more roots by appending an Application here that points at a new roots/<name>/
-# directory of children. The Module 3 exercise builds a `dev` root this way.
+# directory of children. The Module 3 exercise builds an `example` root this way.
 apiVersion: argoproj.io/v1alpha1
 kind: AppProject
 metadata:
@@ -56,5 +56,5 @@ spec:
     syncOptions:
       - ServerSideApply=true
       - CreateNamespace=true
-# A `dev-root` (→ roots/dev/, recurse: true) is added by the Module 3 exercise to
-# demonstrate standing up a new root from scratch.
+# An `example-root` (→ roots/example/, recurse: true) is added by the Module 3
+# exercise to demonstrate standing up a new root from scratch.

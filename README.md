@@ -59,7 +59,7 @@ applied and comes up already in sync.
 │   └── cluster-addons.yaml         # AppProject "cluster-addons" (unpopulated)
 ├── roots/                          # app-of-apps: a directory of children per root
 │   └── cluster-addons/             # ApplicationSets for add-ons (sealed-secrets, commented)
-│                                   # (a `dev` root is a commented example in projects/roots.yaml)
+│                                   # (the Module 3 exercise adds an `example` root here)
 └── cluster-resources/
     ├── in-cluster.json             # cluster descriptor {name, server}
     └── in-cluster/                 # cluster-scoped manifests for the local cluster
@@ -147,13 +147,13 @@ make status         # list Applications and ApplicationSets
 
 ## Extending the template
 
-- **Add a root** — uncomment the `dev-root` example in `projects/roots.yaml` (or
-  copy it), pointing it at a `roots/<name>/` directory. The `root` Application
-  syncs `projects/` — no list to update.
+- **Add a root** — copy the `cluster-addons-root` block in `projects/roots.yaml`,
+  pointing it at a new `roots/<name>/` directory. The `root` Application syncs
+  `projects/` — no list to update.
 
 - **Add a workload** — drop a child `Application` (or `ApplicationSet`) under that
-  root's directory, e.g. `roots/dev/<name>.yaml`; the root applies it on the next
-  git poll. The Module 3 exercise builds exactly this — a `dev` root plus a
+  root's directory, e.g. `roots/example/<name>.yaml`; the root applies it on the next
+  git poll. The Module 3 exercise builds exactly this — an `example` root plus a
   `podinfo` child Application that pulls a Helm chart straight from its repo.
 
 - **Add a cluster add-on** — uncomment `roots/cluster-addons/sealed-secrets.yaml`

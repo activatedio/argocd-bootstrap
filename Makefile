@@ -12,9 +12,11 @@ GIT_USERNAME     ?= git
 ARGOCD_VERSION   ?= v3.2.12
 REPO_SECRET_NAME ?= argocd-bootstrap-repo
 
-# Manifest files that carry the __GIT_REPO_URL__ / __ARGOCD_VERSION__ placeholders.
-MANIFESTS := bootstrap/argo-cd.yaml bootstrap/root.yaml projects/default.yaml \
-             bootstrap/argo-cd/kustomization.yaml
+# Directories scanned for the __GIT_REPO_URL__ / __ARGOCD_VERSION__ placeholders.
+# Rendering scans the whole tree, so files you add later (a new project or app)
+# are picked up by re-running `make init`.
+RENDER_DIRS := bootstrap projects roots cluster-resources
+PLACEHOLDER := __GIT_REPO_URL__\|__ARGOCD_VERSION__
 
 .PHONY: help init install manifests require-rendered repo-secret apply \
         wait-ready bootstrap diff status password port-forward uninstall check-render
@@ -63,27 +65,32 @@ install: require-rendered repo-secret apply wait-ready bootstrap
 # Refuse to install if the manifests still carry placeholders — that means
 # `make init` (and the commit + push) hasn't happened yet.
 require-rendered:
-	@if grep -rl '__GIT_REPO_URL__\|__ARGOCD_VERSION__' $(MANIFESTS) >/dev/null 2>&1; then \
+	@if grep -rl '$(PLACEHOLDER)' $(RENDER_DIRS) >/dev/null 2>&1; then \
 		echo "✗ Manifests still contain placeholders — run 'make init' (then commit & push) first."; \
-		grep -rn '__GIT_REPO_URL__\|__ARGOCD_VERSION__' $(MANIFESTS); \
+		grep -rn '$(PLACEHOLDER)' $(RENDER_DIRS); \
 		exit 1; \
 	fi
 
 # --- Render placeholders into the working tree -----------------------------
-# Idempotent: once a placeholder is replaced it is gone, so re-running is a no-op.
+# Scans the whole tree and substitutes in place. Idempotent: once a placeholder
+# is replaced it is gone, so re-running (e.g. after adding a project or app) only
+# renders the new files.
 manifests:
 ifndef GIT_REPO
 	$(error GIT_REPO is required, e.g. GIT_REPO=https://github.com/you/your-gitops-repo)
 endif
 	@echo "→ Rendering manifests (repo=$(GIT_REPO), version=$(ARGOCD_VERSION))"
-	@perl -pi -e 's{__GIT_REPO_URL__}{$(GIT_REPO)}g; s{__ARGOCD_VERSION__}{$(ARGOCD_VERSION)}g' $(MANIFESTS)
+	@files=$$(grep -rl '$(PLACEHOLDER)' $(RENDER_DIRS) 2>/dev/null); \
+	for f in $$files; do \
+		perl -pi -e 's{__GIT_REPO_URL__}{$(GIT_REPO)}g; s{__ARGOCD_VERSION__}{$(ARGOCD_VERSION)}g' "$$f"; \
+	done
 	@$(MAKE) --no-print-directory check-render
 
 # Fail loudly if any placeholder survived (e.g. a new file forgot the substitution).
 check-render:
-	@if grep -rl '__GIT_REPO_URL__\|__ARGOCD_VERSION__' $(MANIFESTS) >/dev/null 2>&1; then \
+	@if grep -rl '$(PLACEHOLDER)' $(RENDER_DIRS) >/dev/null 2>&1; then \
 		echo "✗ Unrendered placeholders remain:"; \
-		grep -rn '__GIT_REPO_URL__\|__ARGOCD_VERSION__' $(MANIFESTS); \
+		grep -rn '$(PLACEHOLDER)' $(RENDER_DIRS); \
 		exit 1; \
 	fi
 
@@ -119,14 +126,17 @@ wait-ready:
 	kubectl -n $(ARGOCD_NS) rollout status statefulset/argocd-application-controller --timeout=300s
 
 # --- Phase 2: hand management to Argo CD ------------------------------------
-# Applies the root Application (manages projects/) and the self-managing
-# argo-cd Application. The CRDs they reference exist after `apply` + `wait-ready`.
+# Applies the self-managing argo-cd Application, the root Application (manages
+# projects/), and the cluster-resources ApplicationSet. The CRDs they reference
+# exist after `apply` + `wait-ready`.
+BOOTSTRAP_MANIFESTS := -f bootstrap/argo-cd.yaml -f bootstrap/root.yaml -f bootstrap/cluster-resources.yaml
+
 bootstrap:
-	kubectl apply -f bootstrap/argo-cd.yaml -f bootstrap/root.yaml --server-side --force-conflicts
+	kubectl apply $(BOOTSTRAP_MANIFESTS) --server-side --force-conflicts
 
 # Show what 'make bootstrap' would change without applying.
 diff:
-	kubectl diff -f bootstrap/argo-cd.yaml -f bootstrap/root.yaml || true
+	kubectl diff $(BOOTSTRAP_MANIFESTS) || true
 
 # --- Day-2 conveniences -----------------------------------------------------
 status:

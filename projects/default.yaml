@@ -1,3 +1,6 @@
+# The default project. Home of the control-plane plumbing: the self-managing
+# `argo-cd` Application, the `root` Application, and the `cluster-resources`
+# ApplicationSet all run here.
 apiVersion: argoproj.io/v1alpha1
 kind: AppProject
 metadata:
@@ -6,7 +9,7 @@ metadata:
   finalizers:
     - resources-finalizer.argocd.argoproj.io
 spec:
-  description: Default project
+  description: Default project — control-plane plumbing and cluster-resources
   sourceRepos:
     - '*'
   destinations:
@@ -18,38 +21,3 @@ spec:
   namespaceResourceWhitelist:
     - group: '*'
       kind: '*'
----
-apiVersion: argoproj.io/v1alpha1
-kind: ApplicationSet
-metadata:
-  name: default
-  namespace: argocd
-spec:
-  generators:
-    - git:
-        repoURL: __GIT_REPO_URL__
-        revision: HEAD
-        directories:
-          - path: apps/*
-  template:
-    metadata:
-      name: '{{path.basename}}'
-      namespace: argocd
-      finalizers:
-        - resources-finalizer.argocd.argoproj.io
-    spec:
-      project: default
-      source:
-        repoURL: __GIT_REPO_URL__
-        path: '{{path}}'
-        targetRevision: HEAD
-      destination:
-        server: https://kubernetes.default.svc
-        namespace: argocd
-      syncPolicy:
-        automated:
-          prune: true
-          selfHeal: true
-        syncOptions:
-          - ServerSideApply=true
-          - CreateNamespace=true

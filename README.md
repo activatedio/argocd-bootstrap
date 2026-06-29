@@ -5,12 +5,18 @@ A **template repository** for bootstrapping and self-managing
 [`argocd-autopilot`](https://github.com/argoproj-labs/argocd-autopilot), but
 plain Kustomize + `kubectl`, no extra CLI to install.
 
-Clone it, point it at your own git repo, run one `make` target, and you get an
-Argo CD install that **manages itself and everything else from git**:
+Its layout follows [`argocd-autopilot`](https://github.com/argoproj-labs/argocd-autopilot)
+(`bootstrap/` + `projects/` + a `cluster-resources` ApplicationSet), applied
+directly with `kubectl` — no autopilot CLI. Workloads enter through the
+**app-of-apps "roots"** pattern rather than a directory-generator ApplicationSet.
+Clone it, point it at your own git repo, run `make`, and you get an Argo CD that
+**manages itself and everything else from git**:
 
 - The Argo CD install is itself an Argo CD `Application` — bump a version, commit, and it upgrades itself.
-- A `root` Application manages your `AppProject`s under `projects/`.
-- A `default` ApplicationSet turns every directory under `apps/*` into an Application automatically.
+- A `root` Application manages the projects under `projects/`: `default`, `roots`, and `cluster-addons`.
+- The `cluster-resources` ApplicationSet (in the **default** project) manages cluster-scoped resources per cluster (the `in-cluster` folder = the cluster Argo CD runs in).
+- The **roots** project holds app-of-apps root Applications; each points at a directory under `roots/` that fans out into child Applications.
+- The **cluster-addons** project scopes add-ons synced to every cluster (a commented `sealed-secrets` example shows the pattern).
 
 ## How it works
 
@@ -20,14 +26,14 @@ this repo (your gitops root)
 ├── make init ─────► renders GIT_REPO / ARGOCD_VERSION into the manifests
 │   git push           (you commit + push — the repo now holds the real values)
 │
-├── make install ──► creates namespace + repo secret
-│                    server-side applies bootstrap/argo-cd  (Argo CD itself)
-│                    applies bootstrap/  (the self-management Applications)
+├── make install ──► creates namespace + repo secret, server-side applies
+│                    bootstrap/argo-cd, then the argo-cd / root / cluster-resources objects
 │
 └── from then on, Argo CD reads THIS repo from git:
-        argo-cd  Application  ─► syncs bootstrap/argo-cd   (manages its own install)
-        root     Application  ─► syncs projects/           (your AppProjects)
-        default  ApplicationSet ─► one Application per apps/*  (your workloads)
+        argo-cd            Application     ─► syncs bootstrap/argo-cd     (manages its own install)
+        root               Application     ─► syncs projects/             (default, roots, cluster-addons)
+        cluster-resources  ApplicationSet  ─► one Application per cluster  (cluster-scoped resources)
+        <name>-root        Application     ─► syncs roots/<name>/          (app-of-apps fan-out)
 ```
 
 Because Argo CD reads the manifests back **from git**, the repo URL must be
@@ -42,20 +48,28 @@ applied and comes up already in sync.
 ├── Makefile                       # install / bootstrap / day-2 helpers
 ├── bootstrap/
 │   ├── argo-cd/
-│   │   ├── kustomization.yaml      # upstream Argo CD install + your patches, version-pinned
+│   │   ├── kustomization.yaml      # upstream Argo CD install, version-pinned
 │   │   └── namespace.yaml          # the argocd namespace
 │   ├── argo-cd.yaml                # Application: Argo CD manages its own install
-│   └── root.yaml                   # Application: manages projects/ (recursive directory)
-├── projects/                       # every *.yaml here is an AppProject / ApplicationSet
-│   └── default.yaml                # AppProject "default" + ApplicationSet over apps/*
-└── apps/                           # each subdir → an Application in the default project
+│   ├── root.yaml                   # Application: manages projects/
+│   └── cluster-resources.yaml      # ApplicationSet (default project): cluster-scoped resources
+├── projects/                       # one file per AppProject (read as a directory by root)
+│   ├── default.yaml                # AppProject "default"
+│   ├── roots.yaml                  # AppProject "roots" + the app-of-apps root Applications
+│   └── cluster-addons.yaml         # AppProject "cluster-addons" (unpopulated)
+├── roots/                          # app-of-apps: a directory of children per root
+│   └── cluster-addons/             # ApplicationSets for add-ons (sealed-secrets, commented)
+│                                   # (a `dev` root is a commented example in projects/roots.yaml)
+└── cluster-resources/
+    ├── in-cluster.json             # cluster descriptor {name, server}
+    └── in-cluster/                 # cluster-scoped manifests for the local cluster
 ```
 
-`projects/` and `apps/` are plain **recursive directories** — Argo CD reads
-every manifest it finds, so adding a project or app is just dropping a file in.
-Only `bootstrap/argo-cd/` keeps a `kustomization.yaml`, because it pulls the
-upstream Argo CD install and is where you patch it (e.g. service tweaks,
-`server.insecure`).
+Neither `projects/` nor `bootstrap/` uses a `kustomization.yaml`: `root` reads
+`projects/` as a directory of manifests, and `make bootstrap` applies the three
+`bootstrap/*.yaml` objects with `-f`. Only `bootstrap/argo-cd/` keeps a
+`kustomization.yaml`, because it pulls the upstream Argo CD install and is where
+you patch it (`server.insecure`, etc.).
 
 ## Prerequisites
 
@@ -100,7 +114,7 @@ target you can run alone:
 | Secret | `repo-secret` | Creates the namespace and a `repository` secret from `GIT_TOKEN` |
 | Install | `apply` | `kubectl apply -k bootstrap/argo-cd --server-side` (CRDs + control plane) |
 | Wait | `wait-ready` | Waits for argocd-server / repo-server / appset / app-controller |
-| Bootstrap | `bootstrap` | Applies the `root` + self-managing `argo-cd` Applications |
+| Bootstrap | `bootstrap` | Applies the self-managing `argo-cd`, the `root` Application, and the `cluster-resources` ApplicationSet |
 
 `make init` needs `GIT_REPO` (and optionally `ARGOCD_VERSION`); `make install`
 needs `GIT_REPO` and `GIT_TOKEN`. The token is the one value never committed to
@@ -133,23 +147,28 @@ make status         # list Applications and ApplicationSets
 
 ## Extending the template
 
-- **Add a workload** — create `apps/<name>/` with a `kustomization.yaml`, Helm
-  chart, or plain manifests. The `default` ApplicationSet picks it up on the
-  next git poll. See [`apps/README.md`](apps/README.md).
+- **Add a root** — uncomment the `dev-root` example in `projects/roots.yaml` (or
+  copy it), pointing it at a `roots/<name>/` directory. The `root` Application
+  syncs `projects/` — no list to update.
 
-- **Add an AppProject** — drop a `projects/<name>.yaml` (or a subdirectory of
-  them). The `root` Application recurses `projects/` and syncs it — no list to
-  update. Use projects to scope RBAC, source repos, and destinations per
-  team/customer.
+- **Add a workload** — drop a child `Application` (or `ApplicationSet`) under that
+  root's directory, e.g. `roots/dev/<name>.yaml`; the root applies it on the next
+  git poll. The Module 3 exercise builds exactly this — a `dev` root plus a
+  `podinfo` child Application that pulls a Helm chart straight from its repo.
 
-- **App-of-apps "roots"** — for fan-out across many Applications or clusters,
-  add an Application under a project that points at a directory of child
-  Applications (the classic app-of-apps pattern). `root.yaml` is the first
-  example of this.
+- **Add a cluster add-on** — uncomment `roots/cluster-addons/sealed-secrets.yaml`
+  (or add another ApplicationSet beside it). Add-ons run in the `cluster-addons`
+  project and the `cluster-addons-root` applies them.
+
+- **Add cluster-scoped resources** — drop manifests (Namespaces, CRDs, repository
+  secrets, …) into `cluster-resources/in-cluster/`. To manage another cluster, add
+  a `cluster-resources/<cluster>.json` descriptor and a matching
+  `cluster-resources/<cluster>/` folder.
 
 - **Customize the install** — patch the Argo CD install via
-  `bootstrap/argo-cd/kustomization.yaml` (e.g. `server.insecure: "true"` when a
-  TLS-terminating ingress sits in front — a commented example is in that file).
+  `bootstrap/argo-cd/kustomization.yaml` (e.g. a `server.insecure: "true"` patch
+  on `argocd-cmd-params-cm` when a TLS-terminating ingress sits in front — a
+  commented example is in that file).
 
 ## Upgrade Argo CD
 

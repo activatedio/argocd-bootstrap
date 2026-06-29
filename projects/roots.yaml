@@ -1,0 +1,60 @@
+# The roots project — home of the **app-of-apps roots**. Each root Application
+# points at a directory under roots/ that holds child Applications /
+# ApplicationSets. This is how workloads enter the cluster: instead of one
+# directory-generator ApplicationSet, you add a root per area and let it fan out.
+#
+# `cluster-addons-root` ships live as the in-repo example of the pattern. Add
+# more roots by appending an Application here that points at a new roots/<name>/
+# directory of children. The Module 3 exercise builds a `dev` root this way.
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: roots
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  description: App-of-apps roots (directories of Applications / ApplicationSets)
+  sourceRepos:
+    - '*'
+  destinations:
+    - namespace: '*'
+      server: '*'
+  clusterResourceWhitelist:
+    - group: '*'
+      kind: '*'
+  namespaceResourceWhitelist:
+    - group: '*'
+      kind: '*'
+---
+# cluster-addons-root — applies the ApplicationSets under roots/cluster-addons/
+# (which run in the `cluster-addons` project). recurse: false on purpose: only the
+# top-level ApplicationSets here are manifests; any cluster-configs/ subdirs are
+# per-cluster generator INPUTS, not manifests to apply directly.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cluster-addons-root
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: roots
+  source:
+    repoURL: __GIT_REPO_URL__
+    path: roots/cluster-addons
+    targetRevision: HEAD
+    directory:
+      recurse: false
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true
+      - CreateNamespace=true
+# A `dev-root` (→ roots/dev/, recurse: true) is added by the Module 3 exercise to
+# demonstrate standing up a new root from scratch.

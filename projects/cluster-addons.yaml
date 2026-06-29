@@ -1,0 +1,27 @@
+# The cluster-addons project — scopes cluster add-ons (sealed-secrets, an ingress
+# controller, cert-manager, metrics, …) that you sync to every connected cluster.
+#
+# This template ships the AppProject only — it is intentionally NOT populated.
+# The add-ons themselves live as ApplicationSets under roots/cluster-addons/ and
+# run in this project; see the commented sealed-secrets example there for the
+# pattern.
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: cluster-addons
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  description: Cluster add-ons synced to every connected cluster
+  sourceRepos:
+    - '*'
+  destinations:
+    - namespace: '*'
+      server: '*'
+  clusterResourceWhitelist:
+    - group: '*'
+      kind: '*'
+  namespaceResourceWhitelist:
+    - group: '*'
+      kind: '*'

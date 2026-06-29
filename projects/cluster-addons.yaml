@@ -3,8 +3,7 @@
 #
 # This template ships the AppProject only — it is intentionally NOT populated.
 # The add-ons themselves live as ApplicationSets under roots/cluster-addons/ and
-# run in this project; see the commented sealed-secrets example there for the
-# pattern.
+# run in this project. Add your own there.
 apiVersion: argoproj.io/v1alpha1
 kind: AppProject
 metadata:

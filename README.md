@@ -16,7 +16,7 @@ Clone it, point it at your own git repo, run `make`, and you get an Argo CD that
 - A `root` Application manages the projects under `projects/`: `default`, `roots`, and `cluster-addons`.
 - The `cluster-resources` ApplicationSet (in the **default** project) manages cluster-scoped resources per cluster (the `in-cluster` folder = the cluster Argo CD runs in).
 - The **roots** project holds app-of-apps root Applications; each points at a directory under `roots/` that fans out into child Applications.
-- The **cluster-addons** project scopes add-ons synced to every cluster (a commented `sealed-secrets` example shows the pattern).
+- The **cluster-addons** project scopes add-ons synced to every cluster; drop ApplicationSets under `roots/cluster-addons/` and the `cluster-addons-root` applies them.
 
 ## How it works
 
@@ -58,7 +58,7 @@ applied and comes up already in sync.
 │   ├── roots.yaml                  # AppProject "roots" + the app-of-apps root Applications
 │   └── cluster-addons.yaml         # AppProject "cluster-addons" (unpopulated)
 ├── roots/                          # app-of-apps: a directory of children per root
-│   └── cluster-addons/             # ApplicationSets for add-ons (sealed-secrets, commented)
+│   └── cluster-addons/             # ApplicationSets for add-ons (add your own; empty here)
 │                                   # (the Module 3 exercise adds an `example` root here)
 └── cluster-resources/
     ├── in-cluster.json             # cluster descriptor {name, server}
@@ -156,9 +156,10 @@ make status         # list Applications and ApplicationSets
   git poll. The Module 3 exercise builds exactly this — an `example` root plus a
   `podinfo` child Application that pulls a Helm chart straight from its repo.
 
-- **Add a cluster add-on** — uncomment `roots/cluster-addons/sealed-secrets.yaml`
-  (or add another ApplicationSet beside it). Add-ons run in the `cluster-addons`
-  project and the `cluster-addons-root` applies them.
+- **Add a cluster add-on** — drop an `ApplicationSet` (or `Application`) under
+  `roots/cluster-addons/` — e.g. sealed-secrets, an ingress controller,
+  cert-manager. It runs in the `cluster-addons` project and the
+  `cluster-addons-root` applies it.
 
 - **Add cluster-scoped resources** — drop manifests (Namespaces, CRDs, repository
   secrets, …) into `cluster-resources/in-cluster/`. To manage another cluster, add

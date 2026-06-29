@@ -17,6 +17,9 @@ Argo CD install that **manages itself and everything else from git**:
 ```
 this repo (your gitops root)
 │
+├── make init ─────► renders GIT_REPO / ARGOCD_VERSION into the manifests
+│   git push           (you commit + push — the repo now holds the real values)
+│
 ├── make install ──► creates namespace + repo secret
 │                    server-side applies bootstrap/argo-cd  (Argo CD itself)
 │                    applies bootstrap/  (the self-management Applications)
@@ -28,8 +31,9 @@ this repo (your gitops root)
 ```
 
 Because Argo CD reads the manifests back **from git**, the repo URL must be
-baked into them. `make install` does that substitution for you; you then commit
-and push so Argo CD can see the same values.
+baked into them. `make init` does that substitution; you commit and push the
+result *before* `make install`, so Argo CD reads back exactly the values you
+applied and comes up already in sync.
 
 ## Layout
 
@@ -62,30 +66,45 @@ upstream Argo CD install and is where you patch it (e.g. service tweaks,
 
 ## Install
 
+The flow is **render → commit → install**, in that order. Rendering and pushing
+*before* you install means Argo CD reads back exactly what you applied, so the
+very first reconcile is already in sync — no transient drift while the control
+plane comes up.
+
 ```sh
-# 1. Use this template / clone it, then push it to your own repo:
+# 1. Use this template / clone it, then point it at your own repo:
 git remote set-url origin https://github.com/you/your-gitops-repo
 git push -u origin main
 
-# 2. Bootstrap the cluster
-make install \
+# 2. Render the templates (edits files only — touches nothing in the cluster)
+make init \
   GIT_REPO=https://github.com/you/your-gitops-repo \
-  GIT_TOKEN=ghp_your_token \
   ARGOCD_VERSION=v3.2.12
 
-# 3. Commit & push the rendered manifests so Argo CD can read them back
-git commit -am "bootstrap argo-cd" && git push
+# 3. Publish the rendered manifests so Argo CD reads the same values back
+git commit -am "init gitops repo" && git push
+
+# 4. Install: create the repo secret and apply to the cluster
+make install \
+  GIT_REPO=https://github.com/you/your-gitops-repo \
+  GIT_TOKEN=ghp_your_token
 ```
 
-`make install` runs these phases (each is also a target you can run alone):
+`make init` renders; `make install` applies. Each underlying phase is also a
+target you can run alone:
 
-| Phase | Target | What it does |
-|-------|--------|--------------|
-| Render | `manifests` | Substitutes `GIT_REPO` / `ARGOCD_VERSION` into the manifests in place |
+| Step | Target | What it does |
+|------|--------|--------------|
+| Render | `init` (→ `manifests`) | Substitutes `GIT_REPO` / `ARGOCD_VERSION` into the manifests in place |
+| Guard | `require-rendered` | Refuses to install while placeholders remain (run `init` first) |
 | Secret | `repo-secret` | Creates the namespace and a `repository` secret from `GIT_TOKEN` |
 | Install | `apply` | `kubectl apply -k bootstrap/argo-cd --server-side` (CRDs + control plane) |
 | Wait | `wait-ready` | Waits for argocd-server / repo-server / appset / app-controller |
 | Bootstrap | `bootstrap` | Applies the `root` + self-managing `argo-cd` Applications |
+
+`make init` needs `GIT_REPO` (and optionally `ARGOCD_VERSION`); `make install`
+needs `GIT_REPO` and `GIT_TOKEN`. The token is the one value never committed to
+git — it lives only in the in-cluster repo secret.
 
 ### Variables
 

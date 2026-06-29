@@ -1,0 +1,22 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: argocd
+
+# The upstream Argo CD install, pinned to a version. `make install` rewrites
+# the ref below to the ARGOCD_VERSION you pass in; thereafter Argo CD manages
+# its own upgrade when you bump the ref and commit.
+resources:
+  - namespace.yaml
+  - github.com/argoproj/argo-cd/manifests/cluster-install?ref=__ARGOCD_VERSION__
+
+# --- Optional customizations -------------------------------------------------
+# Run argocd-server in insecure mode (plain HTTP) when a TLS-terminating
+# ingress / gateway sits in front of it. Add a cmd-params-cm.yaml patch with
+# `server.insecure: "true"` and reference it here, e.g.:
+#
+# patches:
+#   - path: cmd-params-cm.yaml
+#     target:
+#       kind: ConfigMap
+#       name: argocd-cmd-params-cm

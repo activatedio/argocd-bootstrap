@@ -1,0 +1,86 @@
+name: Update Argo CD version
+
+# Weekly chore: check for a newer stable Argo CD release and, if one exists,
+# open a PR bumping the pinned version. Merging the PR lets the self-managing
+# `argo-cd` Application upgrade the control plane — so review the release notes
+# before merging. Pinning is preserved: nothing upgrades without a human merge.
+
+on:
+  schedule:
+    - cron: "0 6 * * 1" # Mondays 06:00 UTC
+  workflow_dispatch: {} # allow manual runs
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve latest stable Argo CD release
+        id: latest
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # /releases/latest excludes prereleases (RCs) and drafts.
+          version=$(gh api repos/argoproj/argo-cd/releases/latest --jq .tag_name)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Latest stable Argo CD: $version"
+
+      - name: Read currently pinned version
+        id: current
+        run: |
+          # Prefer the rendered pin in the kustomization; fall back to the
+          # Makefile default (template state, before `make install` renders it).
+          version=$(grep -oE 'ref=v[0-9]+\.[0-9]+\.[0-9]+' bootstrap/argo-cd/kustomization.yaml | head -1 | cut -d= -f2 || true)
+          if [ -z "$version" ]; then
+            version=$(grep -oE 'ARGOCD_VERSION[[:space:]]*\??=[[:space:]]*v[0-9]+\.[0-9]+\.[0-9]+' Makefile | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Currently pinned: $version"
+
+      - name: Open bump PR if a newer version exists
+        if: steps.latest.outputs.version != '' && steps.latest.outputs.version != steps.current.outputs.version
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NEW: ${{ steps.latest.outputs.version }}
+          OLD: ${{ steps.current.outputs.version }}
+        run: |
+          set -euo pipefail
+          branch="chore/argocd-$NEW"
+
+          # Idempotent: if the branch already exists, a PR for this version is
+          # already open (or merged) — don't churn.
+          if git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1; then
+            echo "Branch $branch already exists; nothing to do."
+            exit 0
+          fi
+
+          # Bump the rendered pin (if present) and the Makefile default.
+          perl -pi -e "s{ref=v[0-9]+\.[0-9]+\.[0-9]+}{ref=$NEW}g" bootstrap/argo-cd/kustomization.yaml
+          perl -pi -e "s{(ARGOCD_VERSION\s*\??=\s*)v[0-9]+\.[0-9]+\.[0-9]+}{\${1}$NEW}g" Makefile
+
+          if git diff --quiet; then
+            echo "Nothing to change (version placeholder not yet rendered)."
+            exit 0
+          fi
+
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$branch"
+          git commit -am "chore: bump Argo CD to $NEW"
+          git push origin "$branch"
+
+          gh pr create \
+            --title "chore: bump Argo CD $OLD → $NEW" \
+            --head "$branch" \
+            --body "Automated bump of the pinned Argo CD version (\`$OLD\` → \`$NEW\`).
+
+          Review the [release notes](https://github.com/argoproj/argo-cd/releases/tag/$NEW) before merging — minor releases can change CRDs, RBAC, or defaults.
+
+          Merging this PR lets the self-managing \`argo-cd\` Application upgrade the control plane on its next sync.
+
+          > Note: GitHub's \"latest\" release is the most recently published stable tag, which may occasionally be a patch on an older minor line. Confirm the version line is the one you want."

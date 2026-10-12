@@ -2,14 +2,14 @@
 # argocd-bootstrap — GitOps template for bootstrapping & self-managing Argo CD
 #
 # Quick start (render first, push, THEN install — so Argo CD comes up in sync):
-#   make init    GIT_REPO=https://github.com/you/your-gitops-repo ARGOCD_VERSION=v3.2.12
+#   make init    GIT_REPO=https://github.com/you/your-gitops-repo ARGOCD_VERSION=v3.5.4
 #   git commit -am "init gitops repo" && git push    # publish the rendered manifests
 #   make install GIT_REPO=https://github.com/you/your-gitops-repo GIT_TOKEN=ghp_xxx
 # ---------------------------------------------------------------------------
 
 ARGOCD_NS        ?= argocd
 GIT_USERNAME     ?= git
-ARGOCD_VERSION   ?= v3.2.12
+ARGOCD_VERSION   ?= v3.5.4
 REPO_SECRET_NAME ?= argocd-bootstrap-repo
 
 # Directories scanned for the __GIT_REPO_URL__ / __ARGOCD_VERSION__ placeholders.
